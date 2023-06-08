@@ -21,7 +21,7 @@ class PSGDataLoader(RawDataLoader):
         for i in range(0, len(audio), duration):
             return_audio.append(audio[i:i+duration])
 
-        return return_audio
+        return return_audio, sr
 
 
 class HomePSGDataLoader(RawDataLoader):

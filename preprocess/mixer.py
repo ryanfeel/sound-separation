@@ -4,14 +4,18 @@ import soundfile as sf
 from abc import ABC, abstractmethod
 import os
 import random
-import csv
+import librosa
 
 # Noise Reduction Functions
 from soundsleep.preprocess.noise.estimate_noise import noise_minimum_energy
 from soundsleep.preprocess.noise.reduce_noise import adaptive_noise_reduce
 from soundsleep.preprocess.noise.spectral_gating import spectral_gating
+import noisereduce as nr
 
+from util import create_custom_dataset
 from loader import FactoryDataLoader
+from irr_measurement.irr_estimate import _estimate_SNR_with_fft
+from soundsleep.preprocess.utils import mel_spectrogram
 
 class Mixer(ABC):
     @abstractmethod
@@ -58,73 +62,35 @@ def save_waveform(output_path, amp, samplerate):
     sf.write(output_path, amp, samplerate, format="wav")
 
 
-def create_custom_dataset(
-    datapath,
-    savepath,
-    dataset_name="v0.1"
-):
-    """
-    This function creates the csv file for a custom source separation dataset
-    """
+def preprocess(signal, sr):
+    # preprocess before mix
 
-    mix_path = os.path.join(datapath, "mixture")
-    s1_path = os.path.join(datapath, "source1")
-    s2_path = os.path.join(datapath, "source2")
-    files = os.listdir(mix_path)
+    # normalization
+    max_peak = np.max(np.abs(signal))
+    if max_peak > 1.0:
+        ratio = 1 / max_peak
+        signal = signal * ratio * 0.95
 
-    mix_fl_paths = list()
-    s1_fl_paths = list()
-    s2_fl_paths = list()
+    # noise reduce
+    signal = nr.reduce_noise(
+        y=signal, 
+        sr=sr, 
+        stationary=False
+    )
 
-    for fl in files:
-        mix_fl_paths.append(os.path.join(mix_path, fl))
-        
-        s1 = fl.split('_')[1]
-        s2 = fl.split('_')[2]
-        id = '_' + fl.split('_')[3] + '_' + fl.split('_')[4]
-        s1_fl_paths.append(os.path.join(s1_path, 'source1_' + s1 + id + '.wav'))
-        s2_fl_paths.append(os.path.join(s2_path, 'source2_' + s2 + id + '.wav'))
+    return signal
 
-    csv_columns = [
-        "ID",
-        "duration",
-        "mix_wav",
-        "mix_wav_format",
-        "mix_wav_opts",
-        "s1_wav",
-        "s1_wav_format",
-        "s1_wav_opts",
-        "s2_wav",
-        "s2_wav_format",
-        "s2_wav_opts",
-        "noise_wav",
-        "noise_wav_format",
-        "noise_wav_opts",
-    ]
+def get_IRR_SNR(audio, sr):
+    mel_spec = mel_spec = mel_spectrogram(audio, sr, 20, 50e-3, 25e-3)
 
-    with open(
-        os.path.join(savepath, dataset_name + "_train.csv"), "w"
-    ) as csvfile:
-        writer = csv.DictWriter(csvfile, fieldnames=csv_columns)
-        writer.writeheader()
-        for i, (mix_path, s1_path, s2_path) in enumerate(
-            zip(mix_fl_paths, s1_fl_paths, s2_fl_paths)
-        ):
+    SNR_list = []
+    for freq_index in range(2, 19):
+        series = librosa.power_to_db(mel_spec[freq_index])
 
-            row = {
-                "ID": i,
-                "duration": 1.0,
-                "mix_wav": mix_path,
-                "mix_wav_format": "wav",
-                "mix_wav_opts": None,
-                "s1_wav": s1_path,
-                "s1_wav_format": "wav",
-                "s1_wav_opts": None,
-                "s2_wav": s2_path,
-                "s2_wav_format": "wav",
-                "s2_wav_opts": None,
-            }
-            writer.writerow(row)
+        SNR = _estimate_SNR_with_fft(series, 16000, respiration_freq_range=[8/60, 25/60], idx=freq_index)
+        SNR_list.append(SNR)
+    SNR = np.mean(SNR_list)
+    return SNR
 
 if __name__ == "__main__":
     args = get_args()
@@ -152,8 +118,8 @@ if __name__ == "__main__":
             if raw_data_1 == raw_data_2:
                 continue
             print(raw_data_1, raw_data_2)
-            clean_data = FactoryDataLoader().loader(int(raw_data_1)).load(os.path.join(RAW_DATA_PATH, raw_data_1 + '_data'))
-            noise_data = FactoryDataLoader().loader(int(raw_data_2)).load(os.path.join(RAW_DATA_PATH, raw_data_2 + '_data'))
+            clean_data, sr = FactoryDataLoader().loader(int(raw_data_1)).load(os.path.join(RAW_DATA_PATH, raw_data_1 + '_data'))
+            noise_data, sr = FactoryDataLoader().loader(int(raw_data_2)).load(os.path.join(RAW_DATA_PATH, raw_data_2 + '_data'))
             # length check -> extract method
             if len(clean_data) <= len(noise_data):
                 noise_data = noise_data[:len(clean_data)]
@@ -164,40 +130,31 @@ if __name__ == "__main__":
             j = 0
             for c_audio, n_audio in zip(clean_data[2:-2], noise_data[2:-2]):
                 print(j)
-                snr = random.random() * 18 + 3
                 for i in range(6):
                     duration = 16000 * 30                    
                     source1 = c_audio[i*duration:(i+1)*duration]
                     source2 = n_audio[i*duration:(i+1)*duration]
                     
-                    # Noise Reduction
-                    source1 = adaptive_noise_reduce(
-                        source1,
-                        16000,
-                        30,
-                        estimate_noise_method=noise_minimum_energy,
-                        reduce_noise_method=spectral_gating,
-                        smoothing=0.,
-                    )
-                    source2 = adaptive_noise_reduce(
-                        source2,
-                        16000,
-                        30,
-                        estimate_noise_method=noise_minimum_energy,
-                        reduce_noise_method=spectral_gating,
-                        smoothing=0.,
-                    )
-                    
-                    mixture = mixer.mix(source1, source2, snr)
+                    if get_IRR_SNR(source1, sr) < 10 and get_IRR_SNR(source2, sr) < 10:
+                        continue
 
-                    # clipping 
+                    # preprocess before mix (normalization & noise reduction)
+                    source1 = preprocess(source1, sr)
+                    source2 = preprocess(source2, sr)
+                    snr = random.random() * 12 + 6
+                    mixture = mixer.mix(source1, source2, snr)
+                    mixture2 = mixer.mix(source1, source2, 0)
                     
                     # save mix, clean audio, noise audio
                     c_file_name = '_' + str(j) + '_' + str(i)
-                    output_mix_path = os.path.join(args.output_path, 'mix_'+ raw_data_1 + '_' + raw_data_2 + c_file_name + '_' + str(round(snr, 2)) +'.wav')
+                    output_mix_path = os.path.join(args.output_path, 'mix_'+ raw_data_1 + '_' \
+                        + raw_data_2 + c_file_name + '_' + str(round(snr, 2)) +'.wav')
+                    output_mix2_path = os.path.join(args.output_path, 'mix_'+ raw_data_1 + '_' \
+                        + raw_data_2 + c_file_name + '_0.wav')
                     output_source1_path = os.path.join(args.output_path, 'source1_' + raw_data_1 + c_file_name + '.wav')
                     output_source2_path = os.path.join(args.output_path, 'source2_' + raw_data_2 + c_file_name + '.wav')
                     save_waveform(output_mix_path, mixture, 16000)
+                    save_waveform(output_mix2_path, mixture2, 16000)
                     save_waveform(output_source1_path, source1, 16000)
                     save_waveform(output_source2_path, source2, 16000)
                     csv_list.append([output_mix_path, output_source1_path, output_source2_path])
