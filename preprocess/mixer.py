@@ -111,7 +111,7 @@ def make_mix_data(raw_data):
     j = 0
     for c_audio, n_audio in zip(clean_data[2:-2], noise_data[2:-2]):
         print(j)
-        for i in range(6):
+        for i in range(10):
             duration = sr * 30                    
             source1 = c_audio[i*duration:(i+1)*duration]
             source2 = n_audio[i*duration:(i+1)*duration]

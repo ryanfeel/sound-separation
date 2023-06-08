@@ -36,7 +36,7 @@ class HomePSGDataLoader(RawDataLoader):
             audio, sr = sf.read(os.path.join(path, file))
             return_audio.append(audio)
 
-        return return_audio
+        return return_audio, sr
 
 
 class FactoryDataLoader():
