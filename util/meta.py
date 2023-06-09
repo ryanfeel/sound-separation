@@ -14,6 +14,7 @@ def create_custom_dataset(
     s1_path = os.path.join(datapath, "source1")
     s2_path = os.path.join(datapath, "source2")
     files = os.listdir(mix_path)
+    files = sorted(files)
 
     mix_fl_paths = list()
     s1_fl_paths = list()

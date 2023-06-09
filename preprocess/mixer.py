@@ -32,16 +32,14 @@ class SNRMixer(Mixer):
     def mix(self, clean, noise, snr):
         assert len(clean) == len(noise), "not equal length"
         
-        clean_rms = self.cal_rms(clean)
-        noise_rms = self.cal_rms(noise)
-        adjusted_noise_rms = self.cal_adjusted_rms(clean_rms, snr)
-        adjusted_noise_amp = noise * (adjusted_noise_rms / noise_rms)
+        noise_ratio = 1.0
+
+        if snr != 0:
+            noise_ratio = self.cal_noise_ratio(snr)
+
+        adjusted_noise_amp = noise * noise_ratio
         mixed_amp = clean + adjusted_noise_amp
         
-        # normalization for avoiding clippling issue
-        # print(mixed_amp, mixed_amp.max(axis=0))
-        # mixed_amp = mixed_amp / mixed_amp.max(axis=0) * 0.95
-
         return mixed_amp
 
     def cal_adjusted_rms(self, clean_rms, snr):
@@ -52,6 +50,12 @@ class SNRMixer(Mixer):
 
     def cal_rms(self, amp):
         return np.sqrt(np.mean(np.square(amp), axis=-1))
+    
+    def cal_noise_ratio(self, snr):
+        a = float(snr) / 20
+        noise_ratio = 10 ** a
+        
+        return 1/noise_ratio
 
 def get_args():
     parser = argparse.ArgumentParser()
@@ -71,13 +75,13 @@ def preprocess(signal, sr):
     max_peak = np.max(np.abs(signal))
     if max_peak > 1.0:
         ratio = 1 / max_peak
-        signal = signal * ratio * 0.95
+        signal = signal * ratio * 0.8
 
     # noise reduce
     signal = nr.reduce_noise(
         y=signal, 
         sr=sr, 
-        stationary=False
+        stationary=True
     )
 
     return signal
@@ -101,6 +105,8 @@ def make_mix_data(raw_data):
     FactoryDataLoader().loader(int(raw_data_1))
     clean_data, sr = FactoryDataLoader().loader(int(raw_data_1)).load(os.path.join(RAW_DATA_PATH, raw_data_1 + '_data'))
     noise_data, sr = FactoryDataLoader().loader(int(raw_data_2)).load(os.path.join(RAW_DATA_PATH, raw_data_2 + '_data'))
+    # TODO: will be normalize total audio
+
     # length check -> extract method
     if len(clean_data) <= len(noise_data):
         noise_data = noise_data[:len(clean_data)]
@@ -138,6 +144,7 @@ def make_mix_data(raw_data):
             save_waveform(output_mix2_path, mixture2, 16000)
             save_waveform(output_source1_path, source1, 16000)
             save_waveform(output_source2_path, source2, 16000)
+            # TODO: SNR 비에 따라서 source2도 다른 크기로 저장
         j += 1
 
 if __name__ == "__main__":
@@ -145,9 +152,9 @@ if __name__ == "__main__":
     
     '''
         make mixing code
-        1. load data -> return audio data splited 5 minutes (Preprocess)
-        2. mix (each 30 sec), randomize snr (0~6, 6~12, 12~18) -> make 6 * 3 audio
-        3. NR 
+        1. load data -> return audio data splited 5 minutes 
+        2. preprocess: normalization and noise reduction
+        3. make 2 mixture as two snr ratio, randomize snr (6~18, 0)
         4. save mix, s0, s1 and meta data
     '''
 
@@ -165,5 +172,5 @@ if __name__ == "__main__":
     create_custom_dataset(
         args.output_path,
         args.output_path,
-        dataset_name="v0.3"
+        dataset_name="v0.4"
     )
