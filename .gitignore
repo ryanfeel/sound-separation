@@ -4,3 +4,4 @@
 ./pretrained_models
 ./result
 ./results
+**/__pycache__/**
