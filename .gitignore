@@ -1,0 +1,6 @@
+*.wav
+*.tar
+./audio_cache
+./pretrained_models
+./result
+./results
