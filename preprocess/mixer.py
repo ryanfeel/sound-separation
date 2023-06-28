@@ -123,20 +123,21 @@ def make_mix_eval_data(raw_data):
     noise_data, sr = FactoryDataLoader().loader(int(raw_data_2)).load(os.path.join(RAW_DATA_PATH, raw_data_2 + '_data'))
 
     # length check -> extract method
-    if len(clean_data) <= len(noise_data):
+    if len(clean_data) < len(noise_data):
         noise_data = noise_data[:len(clean_data)]
     else:
-        noise_data.append(noise_data[:(len(clean_data)-len(noise_data))])
+        diff = len(clean_data)-len(noise_data)
+        for i in range(diff):
+            noise_data.append(noise_data[i])
 
     # mix every 30 sec
-    j = 0
-    mix_snr_list = [[], [], [], []]
+    k = 0
     output_mix_path = []
-
+    print(len(clean_data), len(noise_data))
     for c_audio, n_audio in zip(clean_data, noise_data):
         c_audio = normalize(c_audio, sr)
         n_audio = normalize(n_audio, sr)
-        
+        mix_snr_list = [[], [], [], []]
         for i in range(10):
             duration = sr * 30
             if len(c_audio) < i*duration:
@@ -154,21 +155,21 @@ def make_mix_eval_data(raw_data):
             for j in range(4):
                 mix_snr_list[j] = np.concatenate([mix_snr_list[j], mixer.mix(source1, source2, j*6, sr)])
 
-    # save mix
-    for i in range(4):
-        if int(raw_data_1) < 100:
-            data_type = 'HomePSG'
-        else:
-            data_type = 'PSG'
-        path_name = os.path.join(
-            args.output_path,
-            'result_' + data_type + '_' + raw_data_1 + '_' + raw_data_2 + '_snr_' + str(i*6)
-        )
-        if os.path.isdir(path_name) is not True:
-            os.mkdir(path_name)
-        output_mix_path.append(path_name)
-
-        save_waveform(os.path.join(output_mix_path[i], 'audio_0.wav'), mix_snr_list[i], 16000)
+        # save mix
+        i = 0
+        for i in range(4):
+            if int(raw_data_1) < 100:
+                data_type = 'HomePSG'
+            else:
+                data_type = 'PSG'
+            path_name = os.path.join(
+                args.output_path,
+                'result_' + data_type + '_' + raw_data_1 + '_' + raw_data_2 + '_snr_' + str(i*6)
+            )
+            if not os.path.isdir(path_name):
+                os.mkdir(path_name)
+            save_waveform(os.path.join(path_name, 'audio_' + str(k) + '.wav'), mix_snr_list[i], 16000)
+        k = k + 1
 
 def make_mix_data(raw_data):
     print(raw_data[0], raw_data[1])
