@@ -1,7 +1,7 @@
 *.wav
 *.tar
 ./audio_cache
-./pretrained_models
+pretrained_models/**
 ./result
 ./results
 **/__pycache__/**
