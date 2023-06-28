@@ -185,6 +185,7 @@ def make_mix_data(raw_data):
         noise_data.append(noise_data[:(len(clean_data)-len(noise_data))])
 
     # mix every 30 sec
+    j = 0
     for c_audio, n_audio in zip(clean_data[2:-2], noise_data[2:-2]):
         c_audio = normalize(c_audio, sr)
         n_audio = normalize(n_audio, sr)
@@ -201,8 +202,8 @@ def make_mix_data(raw_data):
 
             # get and save mixture
             c_file_name = '_' + str(j) + '_' + str(i)
-            for j in range(3):
-                snr = random.random() * 6 + j * 6
+            for k in range(3):
+                snr = random.random() * 6 + k * 6
                 mixture = mixer.mix(source1, source2, snr, sr)
                 output_mix_path = os.path.join(
                     args.output_path, 
@@ -217,6 +218,7 @@ def make_mix_data(raw_data):
             save_waveform(output_source1_path, source1, 16000)
             save_waveform(output_source2_path, source2, 16000)
             # TODO: SNR 비에 따라서 source2도 다른 크기로 저장
+        j = j + 1
 
 if __name__ == "__main__":
     args = get_args()
