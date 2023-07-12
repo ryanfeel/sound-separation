@@ -103,6 +103,7 @@ def get_IRR_SNR(audio, sr):
     return SNR
 
 def make_mix_eval_data(raw_data):
+    mixer = SNRMixer()
     print(raw_data[0], raw_data[1])
     raw_data_1 = raw_data[0]
     raw_data_2 = raw_data[1]
@@ -132,7 +133,6 @@ def make_mix_eval_data(raw_data):
 
     # mix every 30 sec
     k = 0
-    output_mix_path = []
     print(len(clean_data), len(noise_data))
     for c_audio, n_audio in zip(clean_data, noise_data):
         c_audio = normalize(c_audio, sr)
@@ -148,6 +148,13 @@ def make_mix_eval_data(raw_data):
             
             if len(source1) < len(source2):
                 source2 = source2[:len(source1)]
+            else:
+                diff = len(source1) - len(source2)
+                # add pad 0 
+                pad = []
+                for i in range(diff):
+                    pad.append(0.0)
+                source2 = np.concatenate([source2, pad])
             
             source1 = preprocess(source1, sr)
             source2 = preprocess(source2, sr)
@@ -172,6 +179,7 @@ def make_mix_eval_data(raw_data):
         k = k + 1
 
 def make_mix_data(raw_data):
+    mixer = SNRMixer()
     print(raw_data[0], raw_data[1])
     raw_data_1 = raw_data[0]
     raw_data_2 = raw_data[1]
@@ -244,9 +252,10 @@ if __name__ == "__main__":
     if args.mode == 'train':
         candidate_raw_data = ['003', '010', '016', '017', '029', '033', '123', '1324', '1459', '1495']
         RAW_DATA_PATH = args.raw_path
-        mixer = SNRMixer()
 
         pool = multiprocessing.Pool(processes=8)
+        # TODO: 1) make pre-data read single wav -> find irr -> save wav 
+        # 2) mix using pre-data
         pool.map(make_mix_data, permutations(candidate_raw_data, 2))
         pool.close()
         pool.join()
@@ -257,13 +266,13 @@ if __name__ == "__main__":
             args.output_path,
             args.dataset_name
         )
+        # save sample for check
 
     elif args.mode == 'eval':
         # for test set
         candidate_raw_data = ['015', '018', '022', '023', '280', '485', '1404']
 
         RAW_DATA_PATH = args.raw_path
-        mixer = SNRMixer()
 
         pool = multiprocessing.Pool(processes=6)
         pool.map(make_mix_eval_data, permutations(candidate_raw_data, 2))
