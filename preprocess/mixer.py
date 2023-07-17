@@ -153,6 +153,33 @@ def make_mix_data(raw_data):
             save_waveform(output_source2_path, source2 , 16000)
         j = j + 1
 
+def mix_test(source1, source2, sr):
+    source1 = noise_reduction_origin(source1, sr)
+    source2 = noise_reduction_origin(source2, sr)
+
+    print(get_IRR_SNR(source1, sr))
+    print(get_IRR_SNR(source2, sr))
+
+    mixer = RoomSimulator()
+    # get and save mixture
+    output_mix_path = os.path.join(
+        args.output_path, 'test.wav') 
+    mix1 = mixer.simulate(source1, source2)
+    save_waveform(output_mix_path, mix1, sr)
+
+    mixer = SNRMixer()
+    output_mix_path2 = os.path.join(
+        args.output_path, 'test2.wav') 
+    mix2 = mixer.mix(source1, source2, -12, sr)
+    save_waveform(output_mix_path2, mix2, sr)
+
+    # save clean and noise audio
+    output_source1_path = os.path.join(args.output_path, 'source1.wav')
+    output_source2_path = os.path.join(args.output_path, 'source2.wav')
+    save_waveform(output_source1_path, source1, sr)
+    save_waveform(output_source2_path, source2 , sr)
+
+
 if __name__ == "__main__":
     args = get_args()
     
@@ -202,3 +229,12 @@ if __name__ == "__main__":
         pool.map(make_mix_eval_data, permutations(candidate_raw_data, 2))
         pool.close()
         pool.join()
+
+    elif args.mode =='test':
+        audio_a, sr = sf.read('a_test.wav')
+        audio_m, sr = sf.read('m_test.wav')
+        
+        audio_a = audio_a[30*sr:]
+        audio_m = audio_m[30*sr:]
+
+        mix_test(audio_a, audio_m, sr)
