@@ -5,3 +5,5 @@ pretrained_models/**
 ./result
 ./results
 **/__pycache__/**
+*.png
+*.npy
