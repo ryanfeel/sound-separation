@@ -63,6 +63,8 @@ class ARIADataLoader(RawDataLoader):
 
     def load(self, path):
         audio, sr = sf.read(os.path.join(path, 'audio_0.wav'))
+        if audio.ndim > 1:
+            audio = audio[:, 0]
         return_audio = list()
         duration = self.sr * 300
         for i in range(0, len(audio), duration):
