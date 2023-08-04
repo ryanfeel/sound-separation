@@ -11,8 +11,22 @@ from soundsleep.preprocess.noise.estimate_noise import noise_minimum_energy
 from soundsleep.preprocess.noise.reduce_noise import adaptive_noise_reduce
 from soundsleep.preprocess.noise.spectral_gating import spectral_gating
 
+
 def save_waveform(output_path, amp, samplerate):
     sf.write(output_path, amp, samplerate, format="wav")
+
+def drc(signal, threshold_list=[0.1, 0.5, 2.0], minimum_multiple=2.0, maximum_limit=0.95):
+    # TODO: delete constant value
+    signal_abs = np.abs(signal)
+    multiple = np.ones_like(signal)
+    multiple = np.where(signal_abs <= threshold_list[2], -0.525 * signal_abs + 1.525, multiple)
+    multiple = np.where(signal_abs <= threshold_list[1], -2.5 * signal_abs + 2.25, multiple)
+    multiple = np.where(signal_abs <= threshold_list[0], minimum_multiple, multiple)
+
+    result = signal * multiple
+    result = np.where(signal_abs > 2.0, maximum_limit, result)
+  
+    return result
 
 def normalize(signal):
     # normalization
@@ -33,10 +47,10 @@ def noise_reduction(signal, sr):
 
     return signal
 
-def noise_reduction_origin(source, sr):
+def noise_reduction_origin(signal, sr):
     # original our noise reduce
     signal = adaptive_noise_reduce(
-        source,
+        signal,
         sr,
         30,
         estimate_noise_method=noise_minimum_energy,
@@ -46,8 +60,8 @@ def noise_reduction_origin(source, sr):
 
     return signal
 
-def get_IRR_SNR(audio, sr):
-    mel_spec = mel_spectrogram(audio, sr, 20, 50e-3, 25e-3)
+def get_IRR_SNR(signal, sr):
+    mel_spec = mel_spectrogram(signal, sr, 20, 50e-3, 25e-3)
 
     SNR_list = []
     for freq_index in range(2, 19):
