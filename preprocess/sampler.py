@@ -55,7 +55,6 @@ if __name__ == "__main__":
         os.mkdir(os.path.join(args.output_path, 'source'))
 
     candidate_raw_data = ['10002', '10003', '10004', '10005', '10006', '10007', '10009', '10010', '10011', '10012', '10013']
-    candidate_raw_data = ['10007']
     RAW_DATA_PATH = args.raw_path
 
     pool = multiprocessing.Pool(processes=5)
