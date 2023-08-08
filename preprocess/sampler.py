@@ -27,8 +27,12 @@ def sampling(raw_data):
         for i in range(10):
             duration = sr * 30                    
             source = c_audio[i*duration:(i+1)*duration]
+            if len(source) < duration:
+                continue
+
             source = loader.nr(source, sr)
             IRR = get_IRR_SNR(source, sr)
+
             if IRR < IRR_THRESHOLD:
                 continue
 
