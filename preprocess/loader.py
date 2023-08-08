@@ -1,9 +1,7 @@
 from abc import ABC, abstractmethod
 import os
 import soundfile as sf
-import librosa
-from preprocess.audio_preprocess import save_waveform, normalize, \
-    noise_reduction, noise_reduction_origin, get_IRR_SNR
+from preprocess.audio_preprocess import noise_reduction, noise_reduction_origin
 
 
 class RawDataLoader(ABC):
@@ -73,7 +71,7 @@ class ARIADataLoader(RawDataLoader):
         return return_audio, sr
 
     def nr(self, source, sr):
-        return noise_reduction_origin(source, sr)
+        return noise_reduction(source, sr)
 
 
 class FactoryDataLoader():

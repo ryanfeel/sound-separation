@@ -3,7 +3,7 @@ import argparse
 import multiprocessing
 
 from preprocess.loader import FactoryDataLoader
-from preprocess.audio_preprocess import save_waveform, normalize, get_IRR_SNR, drc
+from preprocess.audio_preprocess import save_waveform, get_IRR_SNR, drc
 
 
 def get_args():
@@ -27,16 +27,14 @@ def sampling(raw_data):
         for i in range(10):
             duration = sr * 30                    
             source = c_audio[i*duration:(i+1)*duration]
-
+            source = loader.nr(source, sr)
             IRR = get_IRR_SNR(source, sr)
             if IRR < IRR_THRESHOLD:
                 continue
 
-            source = loader.nr(source, sr)
-
             # save clean and noise audio
-            output_source1_path = os.path.join(args.output_path, 'source', 'source_' + raw_data + '_' + str(j) + '.wav')
-            save_waveform(output_source1_path, source, 16000)
+            output_source_path = os.path.join(args.output_path, 'source', 'source_' + raw_data + '_' + str(j) + '.wav')
+            save_waveform(output_source_path, source, 16000)
             j = j + 1
 
 
@@ -57,6 +55,7 @@ if __name__ == "__main__":
         os.mkdir(os.path.join(args.output_path, 'source'))
 
     candidate_raw_data = ['10002', '10003', '10004', '10005', '10006', '10007', '10009', '10010', '10011', '10012', '10013']
+    candidate_raw_data = ['10007']
     RAW_DATA_PATH = args.raw_path
 
     pool = multiprocessing.Pool(processes=5)
