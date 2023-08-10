@@ -30,7 +30,6 @@ def sampling(raw_data):
             if len(source) < duration:
                 continue
 
-            source = loader.nr(source, sr)
             IRR = get_IRR_SNR(source, sr)
 
             if IRR < IRR_THRESHOLD:

@@ -2,8 +2,10 @@ import argparse
 import numpy as np
 import soundfile as sf
 import os
-from itertools import permutations
+from itertools import combinations
 import multiprocessing
+import glob
+import random
 
 from util.meta import create_custom_dataset
 from preprocess.loader import FactoryDataLoader
@@ -55,8 +57,6 @@ def make_mix_eval_data(raw_data):
     k = 0
     print(len(clean_data), len(noise_data))
     for c_audio, n_audio in zip(clean_data, noise_data):
-        c_audio = normalize(c_audio, sr)
-        n_audio = normalize(n_audio, sr)
         mix_snr_list = [[], [], [], []]
         for i in range(10):
             duration = sr * 30
@@ -76,8 +76,8 @@ def make_mix_eval_data(raw_data):
                     pad.append(0.0)
                 source2 = np.concatenate([source2, pad])
             
-            source1 = noise_reduction(source1, sr)
-            source2 = noise_reduction(source2, sr)
+            source1 = noise_reduction_origin(source1, sr)
+            source2 = noise_reduction_origin(source2, sr)
 
             for j in range(4):
                 mix_snr_list[j] = np.concatenate([mix_snr_list[j], mixer.mix(source1, source2, j*6, sr)])
@@ -97,6 +97,53 @@ def make_mix_eval_data(raw_data):
                 os.mkdir(path_name)
             save_waveform(os.path.join(path_name, 'audio_' + str(k) + '.wav'), mix_snr_list[i], 16000)
         k = k + 1
+
+def make_mix_data_from_sample(x):
+    x = x * 10000
+    sample_list = glob.glob(RAW_DATA_PATH + '/*')
+    for i in range(10000):
+        if i % 100 == 0:
+            mixer = RoomSimulator()
+
+        random_choice_source = random.choice(sample_list)
+        source_session_id = random_choice_source.split('_')[1]
+        source_index = random_choice_source.split('_')[2]
+        
+        random_choice_noise = random.choice(sample_list)
+        noise_session_id = random_choice_noise.split('_')[1]
+        noise_index = random_choice_noise.split('_')[2]
+
+        while source_session_id==noise_session_id:
+            random_choice_noise = random.choice(sample_list)
+            noise_session_id = random_choice_noise.split('_')[1]
+            noise_index = random_choice_noise.split('_')[2]
+
+        source1, sr = sf.read(random_choice_source)
+        source2, sr = sf.read(random_choice_noise)
+        source1 = source1 * 4.0
+        source2 = source2 * 8.0
+        c_file_name = '_' + source_index.split('.')[0] + '_' + noise_index.split('.')[0]
+
+        output_mix_path = os.path.join(
+            args.output_path, 'mixture', 
+            'mix_' + str(x) + '_' + source_session_id + '_' + noise_session_id +\
+                c_file_name + '.wav')
+        output_source1_path = os.path.join(
+            args.output_path, 'source1', 
+            'source1_' + str(x) + '_' + source_session_id + '_' + source_index.split('.')[0] + '.wav')        
+        output_source2_path = os.path.join(
+            args.output_path, 'source2', 
+            'source2_' + str(x) + '_' + noise_session_id + '_' + noise_index.split('.')[0] + '.wav')
+
+        source1, source2, mixture = mixer.simulate(source1, source2)
+        source1 = noise_reduction(source1, sr)
+        source2 = noise_reduction(source2, sr)
+        mixture = noise_reduction(mixture, sr)
+        save_waveform(output_source1_path, source1[:30*sr], 16000)
+        save_waveform(output_source2_path, source2[:30*sr], 16000)
+        save_waveform(output_mix_path, mixture[:30*sr], 16000)
+        x = x + 1
+
 
 def make_mix_data(raw_data):
     print(raw_data[0], raw_data[1])
@@ -192,22 +239,16 @@ if __name__ == "__main__":
     '''
 
 
-    if os.path.isdir(args.output_path) is not True:
-        os.mkdir(args.output_path)
-        print(os.path.join(args.output_path, 'mixture'))
+    if os.path.isdir(os.path.join(args.output_path, 'mixture')) is not True:
         os.mkdir(os.path.join(args.output_path, 'mixture'))
         os.mkdir(os.path.join(args.output_path, 'source1'))
         os.mkdir(os.path.join(args.output_path, 'source2'))
 
-    # select raw data, TODO: will be load from db
     if args.mode == 'train':
-        candidate_raw_data = ['033', '123', '010', '016', '017', '029',  '1324', '1459', '1495']
         RAW_DATA_PATH = args.raw_path
 
-        pool = multiprocessing.Pool(processes=1)
-        # TODO: 1) make pre-data read single wav -> find irr -> save wav 
-        # 2) mix using pre-data
-        pool.map(make_mix_data, permutations(candidate_raw_data, 2))
+        pool = multiprocessing.Pool(processes=4)
+        pool.map(make_mix_data_from_sample, range(0, 12))
         pool.close()
         pool.join()
 
@@ -221,12 +262,12 @@ if __name__ == "__main__":
 
     elif args.mode == 'eval':
         # for test set
-        candidate_raw_data = ['015', '018', '022', '023', '280', '485', '1404']
+        candidate_raw_data = ['006', '013', '015', '018', '020', '022', '023', '030']
 
         RAW_DATA_PATH = args.raw_path
 
-        pool = multiprocessing.Pool(processes=6)
-        pool.map(make_mix_eval_data, permutations(candidate_raw_data, 2))
+        pool = multiprocessing.Pool(processes=8)
+        pool.map(make_mix_eval_data, combinations(candidate_raw_data, 2))
         pool.close()
         pool.join()
 
