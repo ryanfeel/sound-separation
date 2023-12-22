@@ -14,6 +14,7 @@ def create_custom_dataset(
     s1_path = os.path.join(datapath, "source1")
     s2_path = os.path.join(datapath, "source2")
     files = os.listdir(mix_path)
+    # files = sorted(files)
 
     mix_fl_paths = list()
     s1_fl_paths = list()
@@ -21,12 +22,10 @@ def create_custom_dataset(
 
     for fl in files:
         mix_fl_paths.append(os.path.join(mix_path, fl))
-        
-        s1 = fl.split('_')[1]
-        s2 = fl.split('_')[2]
-        id = '_' + fl.split('_')[3] + '_' + fl.split('_')[4]
-        s1_fl_paths.append(os.path.join(s1_path, 'source1_' + s1 + id + '.wav'))
-        s2_fl_paths.append(os.path.join(s2_path, 'source2_' + s2 + id + '.wav'))
+        s1 = fl.split('_')[1] + '_' + fl.split('_')[3]
+        s2 = fl.split('_')[2] + '_' + fl.split('_')[4].split('.')[0]
+        s1_fl_paths.append(os.path.join(s1_path, 'source_' + s1 + '.wav'))
+        s2_fl_paths.append(os.path.join(s2_path, 'source_' + s2 + '.wav'))
 
     csv_columns = [
         "ID",

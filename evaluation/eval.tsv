@@ -1,0 +1,24 @@
+T00	None	None	143	144	00_00_00_00	240	270	None	None
+T01	Breathing	None	185	186	00_02_20_00	390	420	Near Breathing	Near Breathing
+T02	None	Breathing	186	185	00_02_20_00	390	420	None	None
+T03	Breathing	None	185	186	00_02_30_00	90	120	Near Breathing	Near Breathing
+T04	None	Breathing	186	185	00_02_30_00	90	120	None	Far some eliminated Breathing
+T05	Breathing	None	190	189	00_00_30_00	90	120	Breathing	Breathing
+T06	None	Breathing	189	190	00_00_30_00	90	120	None	None
+T07	toss and turn	None	190	189	00_00_30_00	120	150	toss and turn	toss and turn
+T08	None	toss and turn	189	190	00_00_30_00	120	150	None	removed toss and turn, remian some breathing (2ch)
+T09	Breathing	Breathing	181	182	00_05_20_00	450	480	Near Breathing	separated, remain some far breathing (2ch)
+T10	Breathing	Breathing	182	181	00_05_20_00	450	480	Near Breathing	Near Breathing
+T11	Breathing	Breathing	181	182	00_03_40_00	360	390	Near Breathing	Near Breathing
+T12	Breathing	Breathing	182	181	00_03_40_00	360	390	Near Breathing	Near Breathing (remain little far breathing)
+T13	Breathing	Snoring	185	186	00_02_20_00	480	510	Near Breathing	not separated result
+T14	Breathing	Snoring	186	185	00_02_50_00	0	30	Near Breathing	Near Breathing (2ch)
+T15	Breathing	toss and turn	190	189	00_01_40_00	240	270	Near Breathing	remain weak toss and turn (2ch)
+T16	toss and turn	Breathing	189	190	00_01_40_00	240	270	Near toss and turn	Near toss and turn
+T17	Snoring	Breathing	186	185	00_02_20_00	480	510	Near Snoring	Near Snoring
+T18	Snoring	Breathing	185	186	00_02_50_00	0	30	Near Snoring	remain little far breathing
+T19	Breathing	Snoring	185	186	00_02_20_00	0	30	Near Breathing	not separated result
+T20	Snoring	toss and turn	145	146	00_00_40_00	570	600	Near Snoring	remain weak toss and turn
+T21	toss and turn, Breathing	Snoring	146	145	00_00_40_00	570	600	Near toss and turn	remove snoring, remain weak toss and turn (2ch)
+T22	Snoring	None	143	144	00_04_50_00	570	600	Near Snoring	Near Snoring
+T23	None	Snoring	144	143	00_04_50_00	570	600	None	None
