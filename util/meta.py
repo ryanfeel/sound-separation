@@ -4,7 +4,7 @@ import csv
 def create_custom_dataset(
     datapath,
     savepath,
-    dataset_name="v0.1"
+    dataset_name="v0.1",
 ):
     """
     This function creates the csv file for a custom source separation dataset
@@ -22,10 +22,11 @@ def create_custom_dataset(
 
     for fl in files:
         mix_fl_paths.append(os.path.join(mix_path, fl))
-        s1 = fl.split('_')[1] + '_' + fl.split('_')[3]
-        s2 = fl.split('_')[2] + '_' + fl.split('_')[4].split('.')[0]
-        s1_fl_paths.append(os.path.join(s1_path, 'source_' + s1 + '.wav'))
-        s2_fl_paths.append(os.path.join(s2_path, 'source_' + s2 + '.wav'))
+        idx = fl.split('_')[1]
+        s1 = fl.split('_')[2] + '_' + fl.split('_')[4]
+        s2 = fl.split('_')[3] + '_' + fl.split('_')[5].split('.')[0]
+        s1_fl_paths.append(os.path.join(s1_path, 'source1_' + idx + '_' + s1 + '.wav'))
+        s2_fl_paths.append(os.path.join(s2_path, 'source2_' + idx + '_' + s2 + '.wav'))
 
     csv_columns = [
         "ID",
@@ -67,3 +68,8 @@ def create_custom_dataset(
                 "s2_wav_opts": None,
             }
             writer.writerow(row)
+
+
+for type in ['train', 'test']:
+    path = os.path.join('/data1/ryan/separation/v0.88/', type)
+    create_custom_dataset(path, path, 'v0.88')

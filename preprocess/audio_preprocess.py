@@ -4,6 +4,7 @@ import soundfile as sf
 import numpy as np
 
 from irr_estimate import _estimate_SNR_with_fft
+from ai.sleep_audio.core import audio2mel
 from soundsleep.preprocess.utils import mel_spectrogram
 
 # Noise Reduction Functions
@@ -28,12 +29,15 @@ def drc(signal, threshold_list=[0.1, 0.5, 2.0], minimum_multiple=2.0, maximum_li
   
     return result
 
-def normalize(signal):
+def normalize(signal, max=-1):
     # normalization
-    max_peak = np.max(np.abs(signal))
-    if max_peak >= 1.0:
-        ratio = 1 / max_peak
-        signal = signal * ratio * 0.5
+    if max == -1:
+        max_peak = np.max(np.abs(signal))
+    else:
+        max_peak = max
+
+    ratio = 1 / max_peak
+    signal = signal * ratio * 0.5
 
     return signal
 
@@ -61,7 +65,7 @@ def noise_reduction_origin(signal, sr):
     return signal
 
 def get_IRR_SNR(signal, sr):
-    mel_spec = mel_spectrogram(signal, sr, 20, 50e-3, 25e-3)
+    mel_spec = audio2mel(signal, apply_preprocessing="")[0]
 
     SNR_list = []
     for freq_index in range(2, 19):

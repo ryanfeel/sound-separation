@@ -9,16 +9,24 @@ from CMGAN.src.evaluation import enhance_one_track, enhance_one_track_with_temp_
 import torch
 import numpy as np
 
+from preprocess.mixer import remove_low_frequency
 
 model = separator.from_hparams(
-    source="/home/ryan/sound-separation/pretrained_models/PHP_v0.2", 
-    savedir='/home/ryan/sound-separation/pretrained_models/PHP_v0.2',
+    source="/home/ryan/sound-separation/pretrained_models/v0.88", 
+    savedir='/home/ryan/sound-separation/pretrained_models/v0.88',
     run_opts={"device":"cuda"} 
     )
 
 def inference_sepformer(audio):
+    audio, _, _ = remove_low_frequency(audio)
+    audio = torch.Tensor(audio).unsqueeze(0)
+
     est_sources = model.separate_batch(audio)
-    return est_sources
+
+    est1 = est_sources[0, :, :1].squeeze(-1)
+    est2 = est_sources[0, :, 1:].squeeze(-1)
+
+    return est1.cpu().numpy(), est2.cpu().numpy()
 
 
 class CMGANV082FFT800():
@@ -37,8 +45,8 @@ class CMGANV082FFT800():
         return est_audio, est_audio2
 
 
-class CMGANV0881MIX():
-    # 꽤 잘되는 모델
+class CMGANV088():
+    # 꽤 잘되는 모델 9epoch (without perm)
     def __init__(self):
         self.n_fft = 800
         self.model_c = TSCNet(num_channel=64, num_features=self.n_fft // 2 + 1).cuda()
@@ -47,10 +55,10 @@ class CMGANV0881MIX():
 
     def inference_cmgan(self, mixture):
         est_audio, est_audio2 = enhance_one_track_with_temp_lowf(
-            self.model_c, mixture, self.n_fft, self.n_fft // 2
+            self.model_c, mixture, self.n_fft, self.n_fft // 2, delete_f_bin=8
         )
         est_audio = np.multiply(est_audio, 4.0)
-        est_audio2 = np.multiply(est_audio2, 64.0)
+        est_audio2 = np.multiply(est_audio2, 4.0)
         return est_audio, est_audio2
 
 
@@ -117,7 +125,71 @@ class CMGANV086():
         return est_audio, est_audio2
 
 
-cmgan = CMGANV086()
+class CMGANV0881MIX():
+    def __init__(self):
+        self.n_fft = 800
+        self.model_c = TSCNet(num_channel=64, num_features=self.n_fft // 2 + 1).cuda()
+        self.model_c.load_state_dict((torch.load("/nas/ryan/saved_model/v0.88_1mix/CMGAN_epoch_51_-5.71")))
+        self.model_c.eval()
+
+    def inference_cmgan(self, mixture):
+        est_audio, est_audio2 = enhance_one_track_with_temp_lowf(
+            self.model_c, mixture, self.n_fft, self.n_fft // 2
+        )
+        est_audio = np.multiply(est_audio, 4.0)
+        est_audio2 = np.multiply(est_audio2, 4.0)
+        return est_audio, est_audio2
+    
+
+class CMGANV088AFTER101MIX():
+    def __init__(self):
+        self.n_fft = 800
+        self.model_c = TSCNet(num_channel=64, num_features=self.n_fft // 2 + 1).cuda()
+        self.model_c.load_state_dict((torch.load("/nas/ryan/saved_model/v0.88_after_10_1mix_mag/CMGAN_epoch_77_-5.79")))
+        self.model_c.eval()
+
+    def inference_cmgan(self, mixture):
+        est_audio, est_audio2 = enhance_one_track_with_temp_lowf(
+            self.model_c, mixture, self.n_fft, self.n_fft // 2
+        )
+        est_audio = np.multiply(est_audio, 4.0)
+        est_audio2 = np.multiply(est_audio2, 4.0)
+        return est_audio, est_audio2
+
+
+class CMGANV0871():
+    def __init__(self):
+        self.n_fft = 800
+        self.model_c = TSCNet(num_channel=64, num_features=self.n_fft // 2 + 1).cuda()
+        self.model_c.load_state_dict((torch.load("/nas/ryan/saved_model/v0.87_1_after_10_1mix_mag/CMGAN_epoch_7_-4.82")))
+        self.model_c.eval()
+
+    def inference_cmgan(self, mixture):
+        est_audio, est_audio2 = enhance_one_track_with_temp_lowf(
+            self.model_c, mixture, self.n_fft, self.n_fft // 2, delete_f_bin=10
+        )
+        est_audio = np.multiply(est_audio, 4.0)
+        est_audio2 = np.multiply(est_audio2, 4.0)
+        return est_audio, est_audio2
+
+
+class CMGANTEST():
+    def __init__(self):
+        self.n_fft = 800
+        self.model_c = TSCNet(num_channel=64, num_features=self.n_fft // 2 + 1).cuda()
+        self.model_c.load_state_dict((torch.load("/nas/ryan/saved_model/v0.88_penalty_mamba/CMGAN_epoch_28_-4.39")))
+        self.model_c.eval()
+
+    def inference_cmgan(self, mixture):
+        est_audio, est_audio2 = enhance_one_track_with_temp_lowf(
+            self.model_c, mixture, self.n_fft, self.n_fft // 2, delete_f_bin=8
+        )
+        # est_audio = np.multiply(est_audio, 16.0)
+        # est_audio2 = np.multiply(est_audio2, 16.0)
+        return est_audio, est_audio2
+
+
+cmgan = CMGANTEST()
 
 # TODO: make separator class and overriding sepration method as audio's size
 def separation_nn(mixture, name):
@@ -128,25 +200,33 @@ def separation_nn(mixture, name):
     mixture = torch.Tensor.numpy(mixture)
     
     pd_value = respiration_estimate_from_peakdetect(mixture)
-    mixture_nr = noise_reduce(mixture)
-    result = torch.Tensor(mixture_nr)
-    result2 = torch.Tensor(mixture_nr)
+    # mixture = noise_reduce(mixture)
+    result = torch.Tensor(mixture)
+    result2 = torch.Tensor(mixture)
     # result = torch.Tensor(mixture)
 
     if pd_value > 0.4:
-        # np to tensor
+        # separate with CMGAN
         audio = result.unsqueeze(0)
-        
-        # separate
         est_source, est_source2 = cmgan.inference_cmgan(audio)
+        
+
         result = torch.Tensor(est_source)
         result2 = torch.Tensor(est_source2)
+        
+        # separate with Sepformer
+        # audio = result
+        # est_source, est_source2 = inference_sepformer(audio)
+        # result = est_source
+        # result2 = est_source2
     write_audio("/home/ryan/data/clionic/" + str(name) + "_raw.wav", mixture)
-    # write_audio("/home/ryan/data/clionic/" + str(name) + "_nr.wav", mixture_nr)
     write_audio("/home/ryan/data/clionic/" + str(name) + "_est1.wav", result)
     write_audio("/home/ryan/data/clionic/" + str(name) + "_est2.wav", result2)
+    result_nr = noise_reduce(result.cpu().numpy())
+    write_audio("/home/ryan/data/clionic/" + str(name) + "_est1_nr.wav", result_nr)
+    
 
-    return result, result2
+    return torch.Tensor(result_nr), result2
 
 
 def separation_nn_all(mixture, num):

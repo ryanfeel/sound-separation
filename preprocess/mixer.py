@@ -1,230 +1,161 @@
 import argparse
-import numpy as np
-import soundfile as sf
 import os
-from itertools import combinations
+import torch
+from functools import partial
 import multiprocessing
 import glob
 import random
 
-from util.meta import create_custom_dataset
-from preprocess.loader import FactoryDataLoader
-from preprocess.snr_mixer import SNRMixer
+from sleep_audio import load, write_audio, noise_reduce
+# from sleep_audio.core import power_compress, power_uncompress, power_compress_with_low_f_delete, power_uncompress_with_low_f_delete
 from preprocess.room_simulation import RoomSimulator
-from preprocess.audio_preprocess import save_waveform, normalize, noise_reduction, \
-    noise_reduction_origin, get_IRR_SNR
+from CMGAN.src.utils import power_compress, power_compress_with_low_f_delete, power_uncompress_with_low_f_delete, power_uncompress
 
 
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--raw_path", type=str, required=True)
     parser.add_argument("--output_path", type=str, default="", required=True)
-    parser.add_argument("--mode", type=str, default="train")
-    parser.add_argument("--dataset_name", type=str, default="v0.5")
     args = parser.parse_args()
     return args
 
-def make_mix_eval_data(raw_data):
-    mixer = SNRMixer()
-    print(raw_data[0], raw_data[1])
-    raw_data_1 = raw_data[0]
-    raw_data_2 = raw_data[1]
+def check_again_select(session_id1, session_id2):
+    return_value = False
+    if session_id1 == session_id2:
+        return_value = True
+    elif session_id1 < 100 and session_id2 > 100:
+        return_value = True
+    elif session_id1 > 100 and session_id2 < 100:
+        return_value = True
 
-    if int(raw_data_1) < 100:
-        data_type = 'HomePSG'
-    else:
-        data_type = 'PSG'
-    path_name = os.path.join(
-        args.output_path,
-        'result_' + data_type + '_' + raw_data_1 + '_' + raw_data_2 + '_snr_0'
+    # print(session_id1, session_id2, return_value)
+    return return_value
+    
+    
+def select_candidate(raw_path):
+    sample_list = glob.glob(raw_path + '/*')
+
+    s_path = random.choice(sample_list)
+    s_session_id = s_path.split('_')[-2]
+    s_index = s_path.split('_')[-1]
+    
+    n_path = random.choice(sample_list)
+    n_session_id = n_path.split('_')[-2]
+    n_index = n_path.split('_')[-1]
+
+    
+    while check_again_select(int(s_session_id), int(n_session_id)):
+        n_path = random.choice(sample_list)
+        n_session_id = n_path.split('_')[-2]
+        n_index = n_path.split('_')[-1]
+
+    return s_path, s_session_id, s_index, n_path, n_session_id, n_index
+
+def remove_low_frequency(audio, n_fft=400, hop=100):
+    clean = torch.Tensor(audio).unsqueeze(0)
+
+    clean_spec = torch.stft(
+        clean,
+        n_fft,
+        hop,
+        window=torch.hamming_window(n_fft),
+        onesided=True,
+        return_complex=True
     )
-    print(path_name)
-    if os.path.isdir(path_name):
-        return
+    clean_spec, temp_mag, temp_phase = power_compress_with_low_f_delete(clean_spec, delete_f_bin=8)
 
-    clean_data, sr = FactoryDataLoader().loader(int(raw_data_1)).load(os.path.join(RAW_DATA_PATH, raw_data_1 + '_data'))
-    noise_data, sr = FactoryDataLoader().loader(int(raw_data_2)).load(os.path.join(RAW_DATA_PATH, raw_data_2 + '_data'))
+    clean_real = clean_spec[:, 0, :, :].unsqueeze(1)
+    clean_imag = clean_spec[:, 1, :, :].unsqueeze(1)
+    
+    clean_uncompress = power_uncompress(clean_real, clean_imag).squeeze(1)
 
-    # length check -> extract method
-    if len(clean_data) < len(noise_data):
-        noise_data = noise_data[:len(clean_data)]
-    else:
-        diff = len(clean_data)-len(noise_data)
-        for i in range(diff):
-            noise_data.append(noise_data[i])
+    clean_audio = torch.istft(
+        clean_uncompress,
+        n_fft,
+        hop,
+        window=torch.hamming_window(n_fft),
+        onesided=True,
+    )
+    clean_audio = clean_audio / 4.0
 
-    # mix every 30 sec
-    k = 0
-    print(len(clean_data), len(noise_data))
-    for c_audio, n_audio in zip(clean_data, noise_data):
-        mix_snr_list = [[], [], [], []]
-        for i in range(10):
-            duration = sr * 30
-            if len(c_audio) < i*duration:
-                continue
-                
-            source1 = c_audio[i*duration:(i+1)*duration]
-            source2 = n_audio[i*duration:(i+1)*duration]
-            
-            if len(source1) < len(source2):
-                source2 = source2[:len(source1)]
-            else:
-                diff = len(source1) - len(source2)
-                # add pad 0 
-                pad = []
-                for i in range(diff):
-                    pad.append(0.0)
-                source2 = np.concatenate([source2, pad])
-            
-            source1 = noise_reduction_origin(source1, sr)
-            source2 = noise_reduction_origin(source2, sr)
+    return clean_audio.squeeze(0).cpu().numpy(), temp_mag, temp_phase
 
-            for j in range(4):
-                mix_snr_list[j] = np.concatenate([mix_snr_list[j], mixer.mix(source1, source2, j*6, sr)])
+def restore_low_frequency(audio, temp_mag, temp_phase, n_fft=400, hop=100):
+    clean = torch.Tensor(audio).unsqueeze(0)
 
-        # save mix
-        i = 0
-        for i in range(4):
-            if int(raw_data_1) < 100:
-                data_type = 'HomePSG'
-            else:
-                data_type = 'PSG'
-            path_name = os.path.join(
-                args.output_path,
-                'result_' + data_type + '_' + raw_data_1 + '_' + raw_data_2 + '_snr_' + str(i*6)
-            )
-            if not os.path.isdir(path_name):
-                os.mkdir(path_name)
-            save_waveform(os.path.join(path_name, 'audio_' + str(k) + '.wav'), mix_snr_list[i], 16000)
-        k = k + 1
+    clean_spec = torch.stft(
+        clean,
+        n_fft,
+        hop,
+        window=torch.hamming_window(n_fft),
+        onesided=True,
+        return_complex=True
+    )
+    clean_spec = power_compress(clean_spec)
+    clean_real = clean_spec[:, 0, :, :].unsqueeze(1)
+    clean_imag = clean_spec[:, 1, :, :].unsqueeze(1)
+    
+    clean_uncompress = power_uncompress_with_low_f_delete(clean_real, clean_imag, temp_mag, temp_phase, delete_f_bin=8).squeeze(1)
+    clean_audio = torch.istft(
+        clean_uncompress,
+        n_fft,
+        hop,
+        window=torch.hamming_window(n_fft),
+        onesided=True,
+    )
+    clean_audio = clean_audio / 4.0
 
-def make_mix_data_from_sample(x):
-    x = x * 10000
-    sample_list = glob.glob(RAW_DATA_PATH + '/*')
-    for i in range(10000):
+    return clean_audio.squeeze(0).cpu().numpy()
+
+def make_mix_data_from_sample(process_num, raw_path, save_path, make_num, sr=16000):
+    print(process_num, raw_path, save_path, make_num)
+    x = process_num * make_num
+    for i in range(make_num):
         if i % 100 == 0:
             mixer = RoomSimulator()
 
-        random_choice_source = random.choice(sample_list)
-        source_session_id = random_choice_source.split('_')[1]
-        source_index = random_choice_source.split('_')[2]
+        s_path, s_session_id, s_index, n_path, n_session_id, n_index  =\
+            select_candidate(raw_path)
+
+        source1 = load(s_path)
+        source2 = load(n_path)
         
-        random_choice_noise = random.choice(sample_list)
-        noise_session_id = random_choice_noise.split('_')[1]
-        noise_index = random_choice_noise.split('_')[2]
+        # source1 = noise_reduce(source1, method="default_np")
+        # source2 = noise_reduce(source2, method="default_np")
 
-        while source_session_id==noise_session_id:
-            random_choice_noise = random.choice(sample_list)
-            noise_session_id = random_choice_noise.split('_')[1]
-            noise_index = random_choice_noise.split('_')[2]
+        # source1, s1_temp_mag, s1_temp_phase = remove_low_frequency(source1, n_fft=800, hop=400)
+        source2, s2_temp_mag, s2_temp_phase = remove_low_frequency(source2, n_fft=800, hop=400)
 
-        source1, sr = sf.read(random_choice_source)
-        source2, sr = sf.read(random_choice_noise)
-        source1 = source1 * 4.0
-        source2 = source2 * 8.0
-        c_file_name = '_' + source_index.split('.')[0] + '_' + noise_index.split('.')[0]
+
+        c_file_name = '_' + s_index.split('.')[0] + '_' + n_index.split('.')[0]
 
         output_mix_path = os.path.join(
-            args.output_path, 'mixture', 
-            'mix_' + str(x) + '_' + source_session_id + '_' + noise_session_id +\
+            save_path, 'mixture', 
+            'mix_' + str(x) + '_' + s_session_id + '_' + n_session_id +\
                 c_file_name + '.wav')
         output_source1_path = os.path.join(
-            args.output_path, 'source1', 
-            'source1_' + str(x) + '_' + source_session_id + '_' + source_index.split('.')[0] + '.wav')        
+            save_path, 'source1', 
+            'source1_' + str(x) + '_' + s_session_id + '_' + s_index.split('.')[0] + '.wav')        
         output_source2_path = os.path.join(
-            args.output_path, 'source2', 
-            'source2_' + str(x) + '_' + noise_session_id + '_' + noise_index.split('.')[0] + '.wav')
+            save_path, 'source2', 
+            'source2_' + str(x) + '_' + n_session_id + '_' + n_index.split('.')[0] + '.wav')
 
-        source1, source2, mixture = mixer.simulate(source1, source2)
-        source1 = noise_reduction(source1, sr)
-        source2 = noise_reduction(source2, sr)
-        mixture = noise_reduction(mixture, sr)
-        save_waveform(output_source1_path, source1[:30*sr], 16000)
-        save_waveform(output_source2_path, source2[:30*sr], 16000)
-        save_waveform(output_mix_path, mixture[:30*sr], 16000)
+        _, source2 = mixer.simulate(source1, source2)
+        
+        source1 = source1[:30*16000]
+        source2 = source2[:30*16000]
+
+        # for restoring deleted low freqeuncy
+        # source1 = restore_low_frequency(source1, s1_temp_mag, s1_temp_phase, n_fft=800, hop=400)
+        # source2 = restore_low_frequency(source2, s2_temp_mag, s2_temp_phase, n_fft=800, hop=400)
+
+        mixture = source1 + source2
+        mixture = mixture[:30*16000]
+
+        write_audio(output_source1_path, source1, sr)
+        write_audio(output_source2_path, source2, sr)
+        write_audio(output_mix_path, mixture, sr)
         x = x + 1
-
-
-def make_mix_data(raw_data):
-    print(raw_data[0], raw_data[1])
-    raw_data_1 = raw_data[0]
-    raw_data_2 = raw_data[1]
-
-    clean_data, sr = FactoryDataLoader().loader(int(raw_data_1)).load(os.path.join(RAW_DATA_PATH, raw_data_1 + '_data'))
-    noise_data, sr = FactoryDataLoader().loader(int(raw_data_2)).load(os.path.join(RAW_DATA_PATH, raw_data_2 + '_data'))
-
-    # length check -> extract method
-    if len(clean_data) <= len(noise_data):
-        noise_data = noise_data[:len(clean_data)]
-    else:
-        noise_data.append(noise_data[:(len(clean_data)-len(noise_data))])
-
-    # mix every 30 sec
-    # selecting 2 source (not same session id)
-    j = 2
-    for c_audio, n_audio in zip(clean_data[2:-2], noise_data[2:-2]):
-        c_audio = normalize(c_audio, sr)
-        n_audio = normalize(n_audio, sr)
-        for i in range(10):
-            duration = sr * 30                    
-            source1 = c_audio[i*duration:(i+1)*duration]
-            source2 = n_audio[i*duration:(i+1)*duration]
-            source1 = noise_reduction(source1, sr)
-            source2 = noise_reduction(source2, sr)
-
-            if get_IRR_SNR(source1, sr) < 15 or get_IRR_SNR(source2, sr) < 15:
-                continue
-
-            c_file_name = '_' + str(j) + '_' + str(i)
-            mixer = RoomSimulator()
-            # get and save mixture
-            output_mix_path = os.path.join(
-                args.output_path, 
-                'mixture', 
-                'mix_'+ raw_data_1 + '_' + raw_data_2 +\
-                    c_file_name + '.wav') 
-            mixer.simulate(output_mix_path, source1, source2)
-
-            mixer = RoomSimulator()
-            output_mix_path2 = os.path.join(
-                args.output_path, 
-                'mixture', 
-                'mix_'+ raw_data_2 + '_' + raw_data_1 +\
-                    c_file_name + '.wav') 
-            mixer.simulate(output_mix_path2, source2, source1)
-
-            # save clean and noise audio
-            output_source1_path = os.path.join(args.output_path, 'source1', 'source1_' + raw_data_1 + c_file_name + '.wav')
-            output_source2_path = os.path.join(args.output_path, 'source2', 'source2_' + raw_data_2 + c_file_name + '.wav')
-            save_waveform(output_source1_path, source1, 16000)
-            save_waveform(output_source2_path, source2 , 16000)
-        j = j + 1
-
-def mix_test(source1, source2, sr):
-    source1 = noise_reduction_origin(source1, sr)
-    source2 = noise_reduction_origin(source2, sr)
-
-    print(get_IRR_SNR(source1, sr))
-    print(get_IRR_SNR(source2, sr))
-
-    mixer = RoomSimulator()
-    # get and save mixture
-    output_mix_path = os.path.join(
-        args.output_path, 'test.wav') 
-    mix1 = mixer.simulate(source1, source2)
-    save_waveform(output_mix_path, mix1, sr)
-
-    mixer = SNRMixer()
-    output_mix_path2 = os.path.join(
-        args.output_path, 'test2.wav') 
-    mix2 = mixer.mix(source1, source2, -12, sr)
-    save_waveform(output_mix_path2, mix2, sr)
-
-    # save clean and noise audio
-    output_source1_path = os.path.join(args.output_path, 'source1.wav')
-    output_source2_path = os.path.join(args.output_path, 'source2.wav')
-    save_waveform(output_source1_path, source1, sr)
-    save_waveform(output_source2_path, source2 , sr)
 
 
 if __name__ == "__main__":
@@ -232,50 +163,36 @@ if __name__ == "__main__":
     
     '''
         make mixing code
-        1. load data -> return audio data splited 5 minutes 
-        2. preprocess: normalization and noise reduction
-        3. make 2 mixture as two snr ratio, randomize snr (6~18, 0)
+        1. load source data (30 sec) 
+        2. preprocess(optional): noise reduction
+        3. mix two sources varied ways (just add, room simulator, ...)
         4. save mix, s0, s1 and meta data
     '''
 
+    split_path = ['train', 'test']
+    source_path = ['mixture', 'source1', 'source2']
 
-    if os.path.isdir(os.path.join(args.output_path, 'mixture')) is not True:
-        os.mkdir(os.path.join(args.output_path, 'mixture'))
-        os.mkdir(os.path.join(args.output_path, 'source1'))
-        os.mkdir(os.path.join(args.output_path, 'source2'))
+    if os.path.isdir(args.output_path) is not True:
+        os.mkdir(args.output_path)
+        for split in split_path:
+            os.mkdir(os.path.join(args.output_path, split))
+            for source in source_path:
+                os.mkdir(os.path.join(args.output_path, split, source))
 
-    if args.mode == 'train':
-        RAW_DATA_PATH = args.raw_path
-
-        pool = multiprocessing.Pool(processes=4)
-        pool.map(make_mix_data_from_sample, range(0, 12))
-        pool.close()
-        pool.join()
-
-        # write meta data
-        create_custom_dataset(
-            args.output_path,
-            args.output_path,
-            args.dataset_name
+    process_num = 4
+    make_num = 5000
+    # make_num = 5
+    for split in split_path:
+        if split != 'train':
+            make_num = 500
+            # make_num = 1
+        raw_path = os.path.join(args.raw_path, split)
+        save_path = os.path.join(args.output_path, split)
+        pool = multiprocessing.Pool(processes=process_num)
+        pool.map(
+            partial(make_mix_data_from_sample, raw_path=raw_path, save_path=save_path, make_num=make_num), 
+            range(0, process_num)
         )
-        # save sample for check
-
-    elif args.mode == 'eval':
-        # for test set
-        candidate_raw_data = ['006', '013', '015', '018', '020', '022', '023', '030']
-
-        RAW_DATA_PATH = args.raw_path
-
-        pool = multiprocessing.Pool(processes=8)
-        pool.map(make_mix_eval_data, combinations(candidate_raw_data, 2))
         pool.close()
         pool.join()
-
-    elif args.mode =='test':
-        audio_a, sr = sf.read('a_test.wav')
-        audio_m, sr = sf.read('m_test.wav')
-        
-        audio_a = audio_a[30*sr:]
-        audio_m = audio_m[30*sr:]
-
-        mix_test(audio_a, audio_m, sr)
+    # make_mix_data_from_sample(raw_path, 100, 0)
